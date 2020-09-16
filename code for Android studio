@@ -1,0 +1,256 @@
+package in.glivade.voicecontrol;
+
+import android.Manifest;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
+import android.app.Service;
+import android.content.Context;
+import android.content.Intent;
+import android.media.AudioManager;
+import android.os.IBinder;
+import android.util.Log;
+import android.widget.Toast;
+
+import com.sac.speech.GoogleVoiceTypingDisabledException;
+import com.sac.speech.Speech;
+import com.sac.speech.SpeechDelegate;
+import com.sac.speech.SpeechRecognitionNotAvailable;
+import com.tbruyelle.rxpermissions.RxPermissions;
+
+import org.eclipse.paho.android.service.MqttAndroidClient;
+import org.eclipse.paho.client.mqttv3.IMqttActionListener;
+import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.IMqttToken;
+import org.eclipse.paho.client.mqttv3.MqttCallback;
+import org.eclipse.paho.client.mqttv3.MqttClient;
+import org.eclipse.paho.client.mqttv3.MqttException;
+import org.eclipse.paho.client.mqttv3.MqttMessage;
+
+import java.io.UnsupportedEncodingException;
+import java.util.List;
+import java.util.Objects;
+import java.util.Random;
+
+public class VoiceRecognitionService extends Service implements SpeechDelegate, Speech.stopDueToDelay,MqttCallback {
+
+    public static SpeechDelegate delegate;
+    private MqttAndroidClient client;
+    private boolean isConnected;
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        Toast.makeText(this, "Service Started", Toast.LENGTH_SHORT).show();
+        String clientId = MqttClient.generateClientId();
+        client = new MqttAndroidClient(this, "tcp://"+Constants.MQTT_IP+":"+Constants.MQTT_PORT,
+                clientId);
+        Log.e("VoiceRecognitionService",client.getServerURI());
+        connect();
+        try {
+            ((AudioManager) Objects.requireNonNull(getSystemService(Context.AUDIO_SERVICE)))
+                    .setStreamMute(AudioManager.STREAM_SYSTEM, true);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        Speech.init(this);
+        delegate = this;
+        Speech.getInstance().setListener(this);
+
+        if (Speech.getInstance().isListening()) {
+            Speech.getInstance().stopListening();
+            muteBeepSoundOfRecorder();
+        } else {
+            RxPermissions.getInstance(this).request(Manifest.permission.RECORD_AUDIO).subscribe(granted -> {
+                if (granted) {
+                    try {
+                        Speech.getInstance().stopTextToSpeech();
+                        Speech.getInstance().startListening(null, this);
+                        Toast.makeText(this, "Say something", Toast.LENGTH_SHORT).show();
+                    } catch (SpeechRecognitionNotAvailable e) {
+                        e.printStackTrace();
+                    } catch (GoogleVoiceTypingDisabledException e) {
+                        e.printStackTrace();
+                    }
+                } else {
+                    Toast.makeText(this, "Audio permission required", Toast.LENGTH_LONG).show();
+                }
+            });
+            muteBeepSoundOfRecorder();
+        }
+        return Service.START_STICKY;
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    @Override
+    public void onStartOfSpeech() {
+
+    }
+
+    @Override
+    public void onSpeechRmsChanged(float value) {
+
+    }
+
+    @Override
+    public void onSpeechPartialResults(List<String> results) {
+
+    }
+
+    @Override
+    public void onSpeechResult(String result) {
+        Toast.makeText(this, "result " + result, Toast.LENGTH_SHORT).show();
+        result = result.toLowerCase();
+        if (result.contains("forward")) {
+            Toast.makeText(this, "F", Toast.LENGTH_SHORT).show();
+            publishStatusToMqtt(Constants.TOPIC, "F", false);
+        }
+        if (result.contains("backward")) {
+            Toast.makeText(this, "B", Toast.LENGTH_SHORT).show();
+            publishStatusToMqtt(Constants.TOPIC, "B", false);
+        }
+        if (result.contains("left")) {
+            Toast.makeText(this, "L", Toast.LENGTH_SHORT).show();
+            publishStatusToMqtt(Constants.TOPIC, "L", false);
+        }
+        if (result.contains("right")) {
+                Toast.makeText(this, "R", Toast.LENGTH_SHORT).show();
+                publishStatusToMqtt(Constants.TOPIC, "R", false);
+        }
+        if (result.contains("off")){
+            Toast.makeText(this, "O", Toast.LENGTH_SHORT).show();
+            publishStatusToMqtt(Constants.TOPIC, "O", false);
+        }
+        if (result.contains("left forward")){
+            Toast.makeText(this, "LF", Toast.LENGTH_SHORT).show();
+            publishStatusToMqtt(Constants.TOPIC, "LF", false);
+        }
+        if (result.contains("left backward")){
+            Toast.makeText(this, "LB", Toast.LENGTH_SHORT).show();
+            publishStatusToMqtt(Constants.TOPIC, "LB", false);
+        }
+        if (result.contains("right forward")){
+            Toast.makeText(this, "RF", Toast.LENGTH_SHORT).show();
+            publishStatusToMqtt(Constants.TOPIC, "RF", false);
+        }
+        if (result.contains("right backward")){
+            Toast.makeText(this, "RB", Toast.LENGTH_SHORT).show();
+            publishStatusToMqtt(Constants.TOPIC, "RB", false);
+        }
+    }
+
+    @Override
+    public void onSpecifiedCommandPronounced(String event) {
+        try {
+            ((AudioManager) Objects.requireNonNull(getSystemService(Context.AUDIO_SERVICE)))
+                    .setStreamMute(AudioManager.STREAM_SYSTEM, true);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if (Speech.getInstance().isListening()) {
+            muteBeepSoundOfRecorder();
+            Speech.getInstance().stopListening();
+        } else {
+            RxPermissions.getInstance(this).request(Manifest.permission.RECORD_AUDIO).subscribe(granted -> {
+                if (granted) {
+                    try {
+                        Speech.getInstance().stopTextToSpeech();
+                        Speech.getInstance().startListening(null, this);
+                    } catch (SpeechRecognitionNotAvailable e) {
+                        e.printStackTrace();
+                    } catch (GoogleVoiceTypingDisabledException e) {
+                        e.printStackTrace();
+                    }
+                } else {
+                    Toast.makeText(this, "Audio permission required", Toast.LENGTH_LONG).show();
+                }
+            });
+            muteBeepSoundOfRecorder();
+        }
+    }
+
+    /**
+     * Function to remove the beep sound of voice recognizer.
+     */
+    private void muteBeepSoundOfRecorder() {
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (audioManager != null) {
+            audioManager.setStreamMute(AudioManager.STREAM_NOTIFICATION, true);
+            audioManager.setStreamMute(AudioManager.STREAM_ALARM, true);
+            audioManager.setStreamMute(AudioManager.STREAM_MUSIC, true);
+            audioManager.setStreamMute(AudioManager.STREAM_RING, true);
+            audioManager.setStreamMute(AudioManager.STREAM_SYSTEM, true);
+        }
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        PendingIntent service = PendingIntent.getService(getApplicationContext(),
+                new Random().nextInt(), new Intent(getApplicationContext(),
+                        VoiceRecognitionService.class), PendingIntent.FLAG_ONE_SHOT);
+        AlarmManager alarmManager = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
+        alarmManager.set(AlarmManager.ELAPSED_REALTIME_WAKEUP, 1000, service);
+        super.onTaskRemoved(rootIntent);
+    }
+
+    private void connect(){
+        if (client != null){
+            try {
+                IMqttToken token = client.connect();
+                token.setActionCallback(new IMqttActionListener() {
+                    @Override
+                    public void onSuccess(IMqttToken asyncActionToken) {
+                        // We are connected
+
+                        Log.d("", "onSuccess");
+                        isConnected = true;
+                    }
+
+                    @Override
+                    public void onFailure(IMqttToken asyncActionToken, Throwable exception) {
+                        // Something went wrong e.g. connection timeout or firewall problems
+                        Log.d("", "onFailure "+exception);
+                        isConnected = false;
+                    }
+                });
+            } catch (MqttException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    private void publishStatusToMqtt(String topic, String msg, boolean isRetained) {
+        if(isConnected){
+            byte[] encodedPayload = new byte[0];
+            try {
+                if(!msg.equals("")) {
+                    encodedPayload = msg.getBytes("UTF-8");
+                }
+                MqttMessage message = new MqttMessage(encodedPayload);
+                message.setRetained(isRetained);
+                client.publish(topic, message);
+            } catch (UnsupportedEncodingException | MqttException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    @Override
+    public void connectionLost(Throwable cause) {
+        isConnected = false;
+        connect();
+    }
+
+    @Override
+    public void messageArrived(String topic, MqttMessage message) throws Exception {
+
+    }
+
+    @Override
+    public void deliveryComplete(IMqttDeliveryToken token) {
+
+    }
+}
