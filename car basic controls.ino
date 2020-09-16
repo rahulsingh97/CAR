@@ -1,4 +1,3 @@
-
 #include <IRremote.h>
 const int RECV_PIN = 8;
 unsigned long lastCode; 
