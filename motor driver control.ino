@@ -26,7 +26,6 @@ irrecv.resume();
   if(results.value == 0000) TurnRight();
   if(results.value == 0000) TurnLeft();
   if(results.value == 0000) MotorStop();
-  
 }
 
 // FORWARD 
